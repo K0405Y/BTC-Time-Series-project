@@ -1,7 +1,5 @@
+# Prefect flow definition
 #Run command
-#Handle API failures
-#Move key params to main flow
-
 import pandas as pd
 import yfinance as yf
 from prefect import task, flow
@@ -10,14 +8,15 @@ from prefect import task, flow
 @task(
     name = "Extract BTC Prices",
     retries= 2,
-    retry_delay_seconds=3
+    retry_delay_seconds=5
 )
 
 def extract_bitcoin_prices(tickers:str, period:str, interval:str) -> pd.DataFrame:
     data = yf.download(
         tickers = tickers,
         period = period,
-        interval = interval
+        interval = interval,
+        multi_level_index = False
     )
     return data 
 
@@ -31,9 +30,9 @@ def load_btc (data: pd.DataFrame, path: str) -> None:
 @flow(name= "BTC Price Pipeline")
 def main_flow(
     tickers = "BTC-USD",
-    period = "5d",
-    interval = "1h",
-    path = 'C:/TS Automation/Python BTC/BTC.csv'
+    period = "60d",
+    interval = "5m",
+    path = 'C:/TS Automation/BTC.csv'
 ):
     print('Extracting BTC Prices')
     df = extract_bitcoin_prices(
@@ -43,9 +42,4 @@ def main_flow(
 
 #Main Program 
 if __name__ == "__main__":
-    main_flow(
-        tickers= "BTC-USD",
-        period= "5d",
-        interval= "1h",
-        path= 'C:/TS Automation/Python BTC/BTC.csv'
-    )
+    main_flow()
