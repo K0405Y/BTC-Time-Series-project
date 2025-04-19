@@ -1,10 +1,8 @@
-# utils.py - Visualization and utility functions
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
-from datetime import timedelta
 import os
 import mlflow
 from mlflow.models.signature import infer_signature
@@ -16,11 +14,10 @@ from dotenv import load_dotenv
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = [10, 6]
 
-
 def plot_time_series(data, title='Bitcoin Price History', save_path=None):
     """Plot time series data"""
     plt.figure(figsize=(10, 7))
-    plt.plot(data.index, data['Close'])
+    plt.plot(data.index, data['close'])
     plt.title(title)
     plt.xlabel('Date')
     plt.ylabel('Price (USD)')
@@ -36,20 +33,17 @@ def plot_time_series(data, title='Bitcoin Price History', save_path=None):
     plt.close()
     return buf
 
-
 def plot_forecast(train, test=None, forecast=None, forecast_lower=None, 
-                 forecast_upper=None, future_dates=None, future_forecast=None,
-                 future_lower=None, future_upper=None, 
-                 title='Bitcoin Price Forecast', save_path=None):
+                 forecast_upper=None, title='Bitcoin Price Forecast', save_path=None):
     """Plot historical data and forecasts"""
     plt.figure(figsize=(10, 7))
     
     # Plot historical training data
-    plt.plot(train.index, train['Close'], label='Training Data')
+    plt.plot(train.index, train['close'], label='Training Data')
     
     # Plot test data if provided
     if test is not None:
-        plt.plot(test.index, test['Close'], label='Actual Test Data')
+        plt.plot(test.index, test['close'], label='Actual Test Data')
     
     # Plot test forecast if provided
     if forecast is not None:
@@ -78,37 +72,7 @@ def plot_forecast(train, test=None, forecast=None, forecast_lower=None,
             plt.fill_between(test.index, forecast_lower, forecast_upper, 
                              color='red', alpha=0.1, 
                              label='95% Confidence Interval')
-    
-    # Plot future forecast if provided
-    if future_forecast is not None and future_dates is not None:
-        # Extract predicted_mean values if future_forecast contains dictionaries
-        if isinstance(future_forecast[0], dict) and "forecast" in future_forecast[0]:
-            future_forecast_values = [item["forecast"] for item in future_forecast]
-        else:
-            future_forecast_values = future_forecast
-            
-        # Ensure future_forecast has same length as future_dates
-        if len(future_forecast_values) != len(future_dates):
-            print(f"Warning: future_forecast length ({len(future_forecast_values)}) doesn't match future_dates length ({len(future_dates)})")
-            if len(future_forecast_values) > len(future_dates):
-                # Truncate future_forecast to match future_dates
-                future_forecast_values = future_forecast_values[:len(future_dates)]
-            else:
-                # Truncate future_dates to match future_forecast
-                future_dates = future_dates[:len(future_forecast_values)]
         
-        plt.plot(future_dates, future_forecast_values, label='Future Forecast', 
-                 color='green', linestyle='--')
-        
-        # Plot future confidence intervals if provided
-        if future_lower is not None and future_upper is not None:
-            # Ensure same length
-            future_lower = future_lower[:len(future_dates)]
-            future_upper = future_upper[:len(future_dates)]
-            plt.fill_between(future_dates, future_lower, future_upper, 
-                            color='green', alpha=0.1, 
-                            label='Future 95% Confidence Interval')
-    
     plt.title(title)
     plt.xlabel('Date')
     plt.ylabel('Price (USD)')
@@ -125,7 +89,6 @@ def plot_forecast(train, test=None, forecast=None, forecast_lower=None,
     plt.close()
     return buf
 
-
 def calculate_forecast_metrics(test_actual, test_forecast):
     """Calculate accuracy metrics for forecasts"""
     # Extract forecast values if in dictionary format
@@ -135,12 +98,11 @@ def calculate_forecast_metrics(test_actual, test_forecast):
         test_forecast_values = test_forecast
     
     # Calculate metrics
-    mae = mean_absolute_error(test_actual['Close'].values, test_forecast_values)
-    rmse = np.sqrt(mean_squared_error(test_actual['Close'].values, test_forecast_values))
-    mape = np.mean(np.abs((test_actual['Close'].values - np.array(test_forecast_values)) / test_actual['Close'].values)) * 100
+    mae = mean_absolute_error(test_actual['close'].values, test_forecast_values)
+    rmse = np.sqrt(mean_squared_error(test_actual['close'].values, test_forecast_values))
+    mape = np.mean(np.abs((test_actual['close'].values - np.array(test_forecast_values)) / test_actual['close'].values)) * 100
     
     return mae, rmse, mape
-
 
 def generate_future_dates(last_date, periods=12, interval='5min'):
     """Generate future dates based on the last available date"""
@@ -151,45 +113,46 @@ def generate_future_dates(last_date, periods=12, interval='5min'):
         # For numeric indices
         return [last_date + (i+1) for i in range(periods)]
 
-
 def log_mlflow_model(model, input_example=None):
     """Log model to MLflow"""
     try:
         if input_example is None:
-            input_example = [5]  # Default example: forecast 5 periods
-            
-        # Generate example output
+            input_example = [5]
+
         example_output = model.predict(None, input_example)
-        
-        # Infer signature and log model
         signature = infer_signature(input_example, example_output)
-        
+
         model_path = "btc_arima_model"
+
+        # Dynamically resolve the absolute path to the 'src' directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))  # points to src/modeling
+        code_dir = os.path.abspath(os.path.join(current_dir, ".."))  # points to src
+
         mlflow.pyfunc.log_model(
             artifact_path=model_path,
             python_model=model,
             input_example=input_example,
-            signature=signature)
-        
-        # Return the model URI
+            signature=signature,
+            code_path=[code_dir]  
+        )
+
+        model_uri = f"runs:/{mlflow.active_run().info.run_id}/{model_path}"
+        return model_uri
+
+    except Exception as e:
+        print(f"Error generating model signature: {e}")
+        print("Logging model without signature...")
+
+        mlflow.pyfunc.log_model(
+            artifact_path=model_path,
+            python_model=model,
+            input_example=input_example,
+            code_path=[code_dir]
+        )
+
         model_uri = f"runs:/{mlflow.active_run().info.run_id}/{model_path}"
         return model_uri
     
-    except Exception as e:
-        # Fallback: Log model without signature if there's an error
-        print(f"Error generating model signature: {e}")
-        print("Logging model without signature...")
-        
-        model_path = "btc_arima_model"
-        mlflow.pyfunc.log_model(
-            artifact_path=model_path,
-            python_model=model)
-        
-        # Return the model URI
-        model_uri = f"runs:/{mlflow.active_run().info.run_id}/{model_path}"
-        return model_uri
-
-
 # Database utilities
 def db_connect():
     """Connect to PostgreSQL database"""
@@ -199,19 +162,16 @@ def db_connect():
 def save_to_db(data, table_name="btc_usd_prices"):
     """Save data to database"""
     engine = create_engine(db_connect())
-    data.to_sql(table_name, engine, if_exists='append', index=True)
     print(f"Data saved to {table_name} table")
-    return True
-
+    return data.to_sql(table_name, engine, if_exists='append', index=False)
 
 def get_latest_timestamp(table_name="btc_usd_prices"):
     """Get the latest timestamp from database """
     engine = create_engine(db_connect())
     with engine.connect() as conn:
-        result = conn.execute(text(f"SELECT MAX(datetime) FROM {table_name}"))
+        result = conn.execute(text(f"SELECT MAX(intervals) FROM {table_name}"))
         latest_timestamp = result.scalar()
     return latest_timestamp
-
 
 def save_predictions_to_db(predictions, dates, table_name="btc_usd_predictions"):
     """Save predictions to database (placeholder function)"""
@@ -222,11 +182,14 @@ def save_predictions_to_db(predictions, dates, table_name="btc_usd_predictions")
         pred_values = predictions
         
     pred_df = pd.DataFrame({
-        'datetime': dates,
+        'interval': dates,
         'forecasted_prices': pred_values
     })
     engine = create_engine(db_connect())
     pred_df.to_sql(table_name, engine, if_exists='append', index=False)
+
+    #disconnect from the database
+    engine.dispose()
     
     print(f"Predictions saved to {table_name} table")
     print(pred_df.head())

@@ -3,3 +3,5 @@ configs
 .github
 __pycache__
 .env
+.mlignore
+mlruns
