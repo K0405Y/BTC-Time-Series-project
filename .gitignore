@@ -1,4 +1,5 @@
 .venv
 configs
 .github
-BTC.csv
+__pycache__
+.env
