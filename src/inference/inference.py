@@ -1,243 +1,112 @@
-# inference.py - Script for making Bitcoin price predictions
 import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import mlflow
-import tempfile
-from datetime import datetime, timedelta
-from sqlalchemy import create_engine, text
 import sys
+import mlflow
+import pandas as pd
+from datetime import datetime, timedelta
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from src.modeling.utility import (
-    plot_forecast,
+    get_latest_timestamp, 
+    save_all_predictions,
     generate_future_dates,
-    save_predictions_to_db,
-    db_connect,
-    get_latest_timestamp
+    db_connect
 )
+from sqlalchemy import create_engine, insert, MetaData, select
 
-def load_latest_model(model_uri=None):
-    """
-    Load the latest trained model from MLflow registry or a specific URI
-    
-    Args:
-        model_uri: If provided, will load this specific model. 
-                  If None, will try to load the latest model from production.
-    
-    Returns:
-        Loaded model object
-    """
-    if model_uri is None:
-        # Try to get the latest model from production stage
-        try:
-            client = mlflow.tracking.MlflowClient()
-            latest_model = client.get_latest_versions("btc_arima_model")
-            if latest_model:
-                model_uri = f"models:/btc_arima_model/Production"
-            else:
-                # Fallback to latest model in registry
-                latest_model = client.search_model_versions("name='btc_arima_model'")
-                if latest_model:
-                    # Sort by version number to get the latest
-                    latest_model.sort(key=lambda x: int(x.version), reverse=True)
-                    model_uri = f"models:/btc_arima_model/{latest_model[0].version}"
-                else:
-                    raise ValueError("No models found in registry")
-        except Exception as e:
-            print(f"Error loading model from registry: {e}")
-            raise ValueError("Failed to load model from registry. Please provide a model_uri.")
-    
-    print(f"Loading model from: {model_uri}")
-    model = mlflow.pyfunc.load_model(model_uri)
-    return model
+def log_prediction_run(start_time, end_time, status, records_predicted=0, error_message=None):
+    engine = create_engine(db_connect())
+    metadata = MetaData()
+    metadata.reflect(bind=engine, only=['prediction_runs'])
+    prediction_runs = metadata.tables['prediction_runs']
 
+    run_time = datetime.now()
 
-def predict_next_hour(model=None, model_uri=None, intervals="5min", save_to_db=True):
-    """
-    Predict Bitcoin prices for the next hour with 5-minute intervals
-    
-    Args:
-        model: Pre-loaded model object. If None, will load using model_uri
-        model_uri: URI to load model from if model is None
-        intervals: Time interval for predictions (default "5min")
-        save_to_db: Whether to save predictions to database
-    
-    Returns:
-        Tuple of (future_dates, predictions)
-    """
-    # Load model if not provided
-    if model is None:
-        model = load_latest_model(model_uri)
-    
-    # Get the latest timestamp from the database
-    latest_timestamp = get_latest_timestamp()
-    
-    if latest_timestamp is None:
-        print("No data found in database. Using current time as the reference.")
-        latest_timestamp = datetime.now()
-    
-    print(f"Latest timestamp: {latest_timestamp}")
-    
-    # Calculate how many intervals we need for 1 hour
-    if intervals == "5min":
-        num_periods = 12  # 12 * 5min = 60min = 1 hour
-    elif intervals == "1min":
-        num_periods = 60
-    else:
-        num_periods = int(60 / int(intervals.replace("min", "")))
-    
-    # Generate future dates
-    future_dates = generate_future_dates(latest_timestamp, periods=num_periods, interval=intervals)
-    
-    # Make predictions
-    print(f"Predicting {num_periods} periods ({intervals} intervals)")
-    predictions = model.predict([num_periods])
-    
-    # Output preview
-    print("\nPrediction Preview:")
-    for i, (date, pred) in enumerate(zip(future_dates[:5], predictions[:5])):
-        if isinstance(pred, dict) and "forecast" in pred:
-            pred_value = pred["forecast"]
-        else:
-            pred_value = pred
-        print(f"{date}: ${pred_value:.2f}")
-    
-    if len(future_dates) > 5:
-        print("...")
-        
-    # Save predictions to database if requested
-    if save_to_db:
-        save_predictions_to_db(predictions, future_dates)
-    
-    return future_dates, predictions
-
-
-def visualize_predictions(future_dates, predictions, show_plot=True, save_path=None):
-    """
-    Visualize the predictions for the next hour
-    
-    Args:
-        future_dates: List of future dates for predictions
-        predictions: List of predictions (can be dictionaries with "forecast" key)
-        show_plot: Whether to show the plot
-        save_path: Path to save the plot
-    
-    Returns:
-        Path to saved plot if save_path is provided, None otherwise
-    """
-    plt.figure(figsize=(10, 6))
-    
-    # Extract values if predictions are in dictionary format
-    if isinstance(predictions[0], dict) and "forecast" in predictions[0]:
-        pred_values = [p["forecast"] for p in predictions]
-    else:
-        pred_values = predictions
-    
-    # Plot the predictions
-    plt.plot(future_dates, pred_values, marker='o', linestyle='-', color='blue')
-    
-    # Format the plot
-    plt.title('Bitcoin Price Forecast - Next Hour')
-    plt.xlabel('Time')
-    plt.ylabel('Price (USD)')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    
-    # Format x-axis to show time only
-    plt.gcf().autofmt_xdate()
-    
-    # Add value labels
-    for i, (date, value) in enumerate(zip(future_dates, pred_values)):
-        if i % 2 == 0:  # Only label every other point to avoid overcrowding
-            plt.text(date, value, f'${value:.2f}', fontsize=9, 
-                     ha='center', va='bottom')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path)
-        print(f"Plot saved to: {save_path}")
-    
-    if show_plot:
-        plt.show()
-    else:
-        plt.close()
-    
-    return save_path if save_path else None
-
-
-def run_inference(model_uri=None, intervals="5min", save_to_db=True, 
-                  show_plot=True, save_plot=True):
-    """
-    Main function to run the inference process
-    
-    Args:
-        model_uri: URI to load model from (if None, will load latest from registry)
-        intervals: Time interval for predictions (default "5min")
-        save_to_db: Whether to save predictions to database
-        show_plot: Whether to show the plot
-        save_plot: Whether to save the plot to disk
-    
-    Returns:
-        Tuple of (future_dates, predictions, plot_path)
-    """
-    # Load the model
-    model = load_latest_model(model_uri)
-    
-    # Make predictions
-    future_dates, predictions = predict_next_hour(
-        model=model,
-        intervals=intervals,
-        save_to_db=save_to_db
-    )
-    
-    # Generate plot
-    plot_path = None
-    if show_plot or save_plot:
-        # Create a temporary directory for the plot if needed
-        if save_plot and not os.path.exists('predictions'):
-            os.makedirs('predictions')
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        plot_path = f"predictions/btc_forecast_{timestamp}.png" if save_plot else None
-        
-        visualize_predictions(
-            future_dates=future_dates,
-            predictions=predictions,
-            show_plot=show_plot,
-            save_path=plot_path
+    with engine.begin() as conn:
+        conn.execute(
+            insert(prediction_runs),
+            {
+                'run_time': run_time,
+                'start_time': start_time,
+                'end_time': end_time,
+                'status': status,
+                'records_predicted': records_predicted,
+                'error_message': error_message
+            }
         )
-    
-    return future_dates, predictions, plot_path
 
+def load_model_from_uri(model_uri):
+    return mlflow.pyfunc.load_model(model_uri)
 
-if __name__ == "__main__":
-    # Set up MLflow tracking URI if available
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-    if tracking_uri:
-        mlflow.set_tracking_uri(tracking_uri)
-    
-    # Run the inference
-    future_dates, predictions, plot_path = run_inference(
-        intervals="5min",
-        save_to_db=True,
-        show_plot=True,
-        save_plot=True
+def get_latest_model_uri():
+    from mlflow.tracking import MlflowClient
+    client = MlflowClient()
+    experiment = client.get_experiment_by_name("btc_price_forecasting")
+    if not experiment:
+        raise ValueError("Experiment not found")
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string="attributes.status = 'FINISHED'",
+        order_by=["attributes.start_time DESC"],
+        max_results=1
     )
-    
-    # Print summary
-    print("\n=== Prediction Summary ===")
-    print(f"Predicted {len(predictions)} intervals of 5 minutes")
-    
-    # Extract predicted values if in dictionary format
-    if isinstance(predictions[0], dict) and "forecast" in predictions[0]:
-        pred_values = [p["forecast"] for p in predictions]
+    if not runs:
+        raise ValueError("No successful runs found")
+    return f"runs:/{runs[0].info.run_id}/btc_arima_model"
+
+def predict(model, forecast_periods):
+    predictions = model.predict([forecast_periods])
+    forecast_values = [item["forecast"] for item in predictions] if isinstance(predictions[0], dict) else predictions
+    btc_model = model._model_impl.python_model
+    forecast_lower, forecast_upper = btc_model.generate_confidence_intervals(predictions)
+    return forecast_values, forecast_lower, forecast_upper
+
+def inference_pipeline(model_uri=None, forecast_periods=36):
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+    if not model_uri:
+        model_uri = get_latest_model_uri()
+
+    model = load_model_from_uri(model_uri)
+    last_date = get_latest_timestamp(table_name='btc_usd_predictions')
+    if last_date is None:
+        now = datetime.now()
+        last_date = now - timedelta(minutes=now.minute % 5, seconds=now.second, microseconds=now.microsecond)
     else:
-        pred_values = predictions
-    
-    print(f"Average predicted price: ${np.mean(pred_values):.2f}")
-    print(f"Min predicted price: ${min(pred_values):.2f}")
-    print(f"Max predicted price: ${max(pred_values):.2f}")
-    
-    if plot_path:
-        print(f"\nPrediction plot saved to: {plot_path}")
+        last_date = pd.to_datetime(last_date)
+        if last_date.tzinfo is None:
+            last_date = last_date.tz_localize("UTC")
+        last_date = last_date.astimezone(tz=None).replace(tzinfo=None)
+
+    future_dates = generate_future_dates(last_date=last_date, periods=forecast_periods)
+    start_time = min(future_dates) if not future_dates.empty else None
+    end_time = max(future_dates) if not future_dates.empty else None
+
+    engine = create_engine(db_connect())
+    metadata = MetaData()
+    metadata.reflect(bind=engine, only=['prediction_runs'])
+    prediction_runs = metadata.tables['prediction_runs']
+
+    with engine.connect() as conn:
+        existing_run = conn.execute(
+            select(prediction_runs).where(
+                (prediction_runs.c.start_time == start_time) &
+                (prediction_runs.c.end_time == end_time) &
+                (prediction_runs.c.status == 'success')
+            )
+        ).fetchone()
+        if existing_run:
+            print("[Scheduler] Already processed. Skipping.")
+            return None
+
+    forecast_values, forecast_lower, forecast_upper = predict(model, forecast_periods)
+    records_count = forecast_periods if forecast_values else 0
+    if records_count > 0:
+        save_all_predictions(forecast_values, forecast_lower, forecast_upper, future_dates)
+        log_prediction_run(start_time, end_time, status="success", records_predicted=records_count)
+    else:
+        log_prediction_run(start_time, end_time, status="success", records_predicted=0)
+
+    return {
+        "forecast_dates": future_dates,
+        "forecast_values": forecast_values,
+        "forecast_lower": forecast_lower,
+        "forecast_upper": forecast_upper
+    }

@@ -9,6 +9,7 @@ from mlflow.models.signature import infer_signature
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Set plotting style
 sns.set_style("whitegrid")
@@ -106,13 +107,15 @@ def calculate_forecast_metrics(test_actual, test_forecast):
 
 def generate_future_dates(last_date, periods=12, interval='5min'):
     """Generate future dates based on the last available date"""
-    if isinstance(last_date, pd.Timestamp):
+    if isinstance(last_date, pd.Timestamp) or isinstance(last_date, datetime):
         # For timestamp-based indices
-        return pd.date_range(start=last_date, periods=periods+1, freq=interval)[1:]
-    else:
+        return pd.date_range(start=last_date, periods=periods + 1, freq=interval)[1:]
+    elif isinstance(last_date, (int, float)):
         # For numeric indices
-        return [last_date + (i+1) for i in range(periods)]
-
+        return [last_date + (i + 1) for i in range(periods)]
+    else:
+        raise TypeError("Unsupported type for last_date. Must be datetime, pd.Timestamp, int, or float.")
+    
 def log_mlflow_model(model, input_example=None):
     """Log model to MLflow"""
     try:
@@ -173,24 +176,28 @@ def get_latest_timestamp(table_name="btc_usd_prices"):
         latest_timestamp = result.scalar()
     return latest_timestamp
 
-def save_predictions_to_db(predictions, dates, table_name="btc_usd_predictions"):
-    """Save predictions to database (placeholder function)"""
-    # Create DataFrame from predictions and dates
-    if isinstance(predictions[0], dict) and "forecast" in predictions[0]:
-        pred_values = [p["forecast"] for p in predictions]
-    else:
-        pred_values = predictions
-        
+def save_all_predictions(forecast_values, forecast_lower, forecast_upper, future_dates):
+    """Save predictions to database with upper and lower bounds"""
+    
+    # Create DataFrame with all predictions
     pred_df = pd.DataFrame({
-        'interval': dates,
-        'forecasted_prices': pred_values
+        'interval': future_dates,
+        'forecasted_price': forecast_values,
+        'forecast_lower': forecast_lower,
+        'forecast_upper': forecast_upper
     })
-    engine = create_engine(db_connect())
-    pred_df.to_sql(table_name, engine, if_exists='append', index=False)
+    
+    # Save to database
+    table_name = "btc_usd_predictions"
 
-    #disconnect from the database
+    engine = create_engine(db_connect())
+   # Now save the predictions
+    pred_df.to_sql(table_name, engine, if_exists='append', index=False)
+    
+    print(f"Saved {len(pred_df)} predictions to {table_name} table")
+    print(pred_df.head())
+    
+    # Disconnect from database
     engine.dispose()
     
-    print(f"Predictions saved to {table_name} table")
-    print(pred_df.head())
     return True
