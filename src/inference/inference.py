@@ -3,6 +3,7 @@ import sys
 import mlflow
 import pandas as pd
 from datetime import datetime, timedelta
+from mlflow.tracking import MlflowClient
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from src.modeling.utility import (
     get_latest_timestamp, 
@@ -37,7 +38,6 @@ def load_model_from_uri(model_uri):
     return mlflow.pyfunc.load_model(model_uri)
 
 def get_latest_model_uri():
-    from mlflow.tracking import MlflowClient
     client = MlflowClient()
     experiment = client.get_experiment_by_name("btc_price_forecasting")
     if not experiment:
