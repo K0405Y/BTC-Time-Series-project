@@ -126,5 +126,3 @@ CREATE TABLE btc_usd_predictions (
 4. Push to the branch
 5. Create a Pull Request
 
-## License
-[MIT License](LICENSE)
