@@ -11,25 +11,6 @@ An automated system for Bitcoin price prediction using time series analysis. The
 - PostgreSQL database for data storage
 - Prefect workflows for task orchestration
 
-## Project Structure
-```
-TS Automation/
-│
-├── src/
-│   ├── modeling/
-│   │   ├── train.py          # Model training logic
-│   │   └── utility.py        # Utility functions
-│   ├── inference/
-│   │   └── inference.py      # Prediction generation
-│   └── prefect_flows/
-│       └── extraction_flow.py # Data extraction pipeline
-│
-├── notebooks/                 # Jupyter notebooks for analysis
-├── .env                      # Environment variables
-├── requirements.txt          # Project dependencies
-└── README.md                 # Project documentation
-```
-
 ## Prerequisites
 - Python 3.8+
 - PostgreSQL database
