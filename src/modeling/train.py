@@ -205,7 +205,7 @@ class BTCTimeSeriesModel(mlflow.pyfunc.PythonModel):
 def load_btc_data(table_name="btc_usd_prices"):
     """Load BTC data from database"""
     engine = create_engine(db_connect())
-    data = pd.read_sql(f"SELECT * FROM {table_name}", engine, index_col="intervals")
+    data = pd.read_sql(f"SELECT * FROM {table_name} where intervals >= '2025-03-01'", engine, index_col="intervals")
     return data
 
 def train_model(data, train_size=0.8, seasonal=False, stepwise=True, 

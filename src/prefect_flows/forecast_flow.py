@@ -17,6 +17,6 @@ def inference_flow(model_uri=None, forecast_periods=36):
 if __name__ == "__main__":
     inference_flow.serve(
         name="BTC Prediction Job",
-        cron="0 */3 * * *",
+        cron="0 */12 * * *",
         global_limit=1
     )

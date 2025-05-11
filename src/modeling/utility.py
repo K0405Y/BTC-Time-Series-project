@@ -181,7 +181,7 @@ def save_all_predictions(forecast_values, forecast_lower, forecast_upper, future
     
     # Create DataFrame with all predictions
     pred_df = pd.DataFrame({
-        'interval': future_dates,
+        'intervals': future_dates,
         'forecasted_price': forecast_values,
         'forecast_lower': forecast_lower,
         'forecast_upper': forecast_upper

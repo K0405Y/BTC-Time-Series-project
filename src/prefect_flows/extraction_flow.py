@@ -5,8 +5,7 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from src.modeling.utility import save_to_db, db_connect, get_latest_timestamp
-from sqlalchemy import create_engine, insert, MetaData, select, update
-
+from sqlalchemy import create_engine, insert, MetaData, select
 
 # Function to log the extraction run
 def log_extraction_run(start_time, end_time, status, records_saved=0, error_message=None):
@@ -137,6 +136,7 @@ def schedule_extraction_flow():
 if __name__ == "__main__":
     # Run main extraction flow once at startup
     # extraction_flow()
-    # Schedule the flow to run every hour
-    schedule_extraction_flow.serve(name="BTC Data Extraction Job", cron="0 * * * *", global_limit=1)
+    # Schedule the flow to run every 12 hours 
+    
+    schedule_extraction_flow.serve(name="BTC Data Extraction Job", cron="0 */12 * * *", global_limit=1)
     print("Scheduler started. Running every hour...")
