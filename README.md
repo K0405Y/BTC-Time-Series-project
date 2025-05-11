@@ -31,8 +31,8 @@ pip install -r requirements.txt
 
 3. Configure environment variables in `.env`:
 ```env
-POSTGRES_URL=postgresql://username:password@localhost:5432/database
-MLFLOW_TRACKING_URI=http://localhost:5000
+POSTGRES_URL
+MLFLOW_TRACKING_URI
 ```
 
 ## Usage
